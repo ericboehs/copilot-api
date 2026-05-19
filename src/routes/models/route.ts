@@ -21,6 +21,9 @@ modelRoutes.get("/", async (c) => {
       created_at: new Date(0).toISOString(), // No date available from source
       owned_by: model.vendor,
       display_name: model.name,
+      // Anthropic Models API fields for Claude Code gateway model discovery
+      max_input_tokens: model.capabilities?.limits?.max_context_window_tokens,
+      max_tokens: model.capabilities?.limits?.max_output_tokens,
     }))
 
     return c.json({
