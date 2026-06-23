@@ -7,6 +7,7 @@ import { streamSSE } from "hono/streaming"
 import type { ChatCompletionsPayload } from "~/services/copilot/create-chat-completions"
 
 import { awaitApproval } from "~/lib/approval"
+import { HTTPError } from "~/lib/error"
 import { checkRateLimit } from "~/lib/rate-limit"
 import { state } from "~/lib/state"
 import {
@@ -97,6 +98,17 @@ async function handleStreamingWithRetry(
         err,
       )
 
+      // An HTTPError means Copilot rejected the request before any bytes
+      // streamed: createChatCompletions throws it on a non-2xx response, prior
+      // to returning the event stream. It's deterministic (retrying a 400 just
+      // repeats it), so surface Copilot's actual error body immediately instead
+      // of masking it behind the generic timeout message below.
+      if (err instanceof HTTPError) {
+        const detail = await readHttpErrorBody(err)
+        await writeEvent(stream, translateErrorToAnthropicErrorEvent(detail))
+        return
+      }
+
       if (hasContentData || attempt >= MAX_STREAM_RETRIES) {
         const errorEvent = translateErrorToAnthropicErrorEvent(
           `Upstream connection lost (attempt ${attempt}/${MAX_STREAM_RETRIES}). The model may have timed out during processing.`,
@@ -175,6 +187,32 @@ async function writeEvent(
   event: AnthropicStreamEventData,
 ) {
   await stream.writeSSE({ event: event.type, data: JSON.stringify(event) })
+}
+
+// Pull a human-readable reason out of an upstream HTTPError. Copilot usually
+// returns { error: { message } }, but can also send bare text or an empty body
+// (the opaque "Bad Request"), so fall back through raw text to the HTTP status.
+async function readHttpErrorBody(err: HTTPError): Promise<string> {
+  const status = `Copilot request failed (HTTP ${err.response.status})`
+
+  let body: string
+  try {
+    body = (await err.response.text()).trim()
+  } catch {
+    return status
+  }
+
+  if (!body) return status
+
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: string } }
+    const message = parsed.error?.message
+    if (message) return `${status}: ${message}`
+  } catch {
+    // Body wasn't JSON; fall through to returning it verbatim.
+  }
+
+  return `${status}: ${body}`
 }
 
 const isNonStreaming = (
