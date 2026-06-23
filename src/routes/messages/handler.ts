@@ -192,7 +192,7 @@ async function writeEvent(
 // Pull a human-readable reason out of an upstream HTTPError. Copilot usually
 // returns { error: { message } }, but can also send bare text or an empty body
 // (the opaque "Bad Request"), so fall back through raw text to the HTTP status.
-async function readHttpErrorBody(err: HTTPError): Promise<string> {
+export async function readHttpErrorBody(err: HTTPError): Promise<string> {
   const status = `Copilot request failed (HTTP ${err.response.status})`
 
   let body: string
