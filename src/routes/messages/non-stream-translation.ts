@@ -47,13 +47,11 @@ export function translateToOpenAI(
 }
 
 function translateModelName(model: string): string {
-  // Subagent requests use a specific model number which Copilot doesn't support
-  if (model.startsWith("claude-sonnet-4-")) {
-    return model.replace(/^claude-sonnet-4-.*/, "claude-sonnet-4")
-  } else if (model.startsWith("claude-opus-")) {
-    return model.replace(/^claude-opus-4-.*/, "claude-opus-4")
-  }
-  return model
+  // Claude Code is configured with dash-form IDs (e.g. claude-opus-4-8) to dodge
+  // its client-side "model retired" check, but Copilot only accepts dot-form
+  // (claude-opus-4.8). Map the last dash before the minor version back to a dot.
+  // Idempotent for dot-form input; anchored to claude-* so gpt/gemini pass through.
+  return model.replace(/^(claude-(?:opus|sonnet|haiku)-\d+)-(\d+)/, "$1.$2")
 }
 
 function translateAnthropicMessagesToOpenAI(
