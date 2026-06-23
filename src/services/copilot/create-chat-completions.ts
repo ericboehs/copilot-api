@@ -72,6 +72,13 @@ export interface ChatCompletionChunk {
 interface Delta {
   content?: string | null
   role?: "user" | "assistant" | "system" | "tool"
+  // GitHub Copilot streams the model's extended-thinking as `reasoning_text`
+  // deltas, with the opaque signature chunked across `reasoning_opaque`. These
+  // are non-standard OpenAI fields; without translating them the entire
+  // reasoning phase produces zero Anthropic events and the SSE socket goes
+  // silent (causing Claude Code to stall on long reasoning turns).
+  reasoning_text?: string | null
+  reasoning_opaque?: string | null
   tool_calls?: Array<{
     index: number
     id?: string

@@ -52,8 +52,9 @@ export async function handleCompletion(c: Context) {
   }
 
   consola.debug("Streaming response from Copilot")
+  const thinkingRequested = anthropicPayload.thinking?.type === "enabled"
   return streamSSE(c, async (stream) => {
-    await handleStreamingWithRetry(stream, openAIPayload)
+    await handleStreamingWithRetry(stream, openAIPayload, thinkingRequested)
   })
 }
 
@@ -76,17 +77,17 @@ async function handleNonStreamingRequest(
 async function handleStreamingWithRetry(
   stream: SSEStreamingApi,
   openAIPayload: ChatCompletionsPayload,
+  thinkingRequested: boolean,
 ) {
   let messageStartSentToClient = false
   let hasContentData = false
 
   for (let attempt = 1; attempt <= MAX_STREAM_RETRIES; attempt++) {
     try {
-      const result = await consumeUpstreamStream(
-        stream,
-        openAIPayload,
-        messageStartSentToClient,
-      )
+      const result = await consumeUpstreamStream(stream, openAIPayload, {
+        skipMessageStart: messageStartSentToClient,
+        thinkingRequested,
+      })
       messageStartSentToClient = result.messageStartSent
       hasContentData = result.hasContentData
       return // Stream completed successfully
@@ -114,8 +115,9 @@ async function handleStreamingWithRetry(
 async function consumeUpstreamStream(
   stream: SSEStreamingApi,
   openAIPayload: ChatCompletionsPayload,
-  skipMessageStart: boolean,
+  options: { skipMessageStart: boolean; thinkingRequested: boolean },
 ) {
+  const { skipMessageStart, thinkingRequested } = options
   let messageStartSent = skipMessageStart
   let hasContentData = false
 
@@ -130,7 +132,7 @@ async function consumeUpstreamStream(
     } as AnthropicStreamEventData)
     await writeEvent(stream, {
       type: "message_stop",
-    } as AnthropicStreamEventData)
+    })
     return { messageStartSent: true, hasContentData: true }
   }
 
@@ -138,6 +140,8 @@ async function consumeUpstreamStream(
     messageStartSent: false,
     contentBlockIndex: 0,
     contentBlockOpen: false,
+    thinkingBlockOpen: false,
+    thinkingRequested,
     toolCalls: {},
   }
 

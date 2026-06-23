@@ -196,6 +196,17 @@ export interface AnthropicStreamState {
   messageStartSent: boolean
   contentBlockIndex: number
   contentBlockOpen: boolean
+  // True only while the currently-open block is a `thinking` block. Copilot
+  // sends reasoning_text/reasoning_opaque deltas that map onto an Anthropic
+  // thinking block; we must open it lazily and close it before any text/tool
+  // block starts.
+  thinkingBlockOpen: boolean
+  // Whether the client actually requested extended thinking
+  // (payload.thinking.type === "enabled"). Copilot streams reasoning_text
+  // regardless of this flag, so when the client did NOT opt in we must drop the
+  // reasoning (and keep the socket alive with pings) rather than emit thinking
+  // blocks the client never asked for.
+  thinkingRequested: boolean
   toolCalls: {
     [openAIToolIndex: number]: {
       id: string
