@@ -15,7 +15,7 @@ const messageSchema = z.object({
     "function",
     "developer",
   ]),
-  content: z.union([z.string(), z.object({}), z.array(z.any())]),
+  content: z.union([z.string(), z.object({}), z.array(z.any())]).nullable(),
   name: z.string().optional(),
   tool_calls: z.array(z.any()).optional(),
   tool_call_id: z.string().optional(),
@@ -154,6 +154,86 @@ describe("Anthropic to OpenAI translation logic", () => {
       "Let me think about this simple math problem...",
     )
     expect(assistantMessage?.content).toContain("2+2 equals 4.")
+  })
+
+  test("should append a user turn when the conversation ends with an assistant message", () => {
+    // Copilot rejects (400) any conversation ending on an assistant turn.
+    // Anthropic allows it as prefill, so we shim a trailing user message.
+    const anthropicPayload: AnthropicMessagesPayload = {
+      model: "claude-opus-4-8",
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "Hello there" },
+      ],
+      max_tokens: 100,
+    }
+    const openAIPayload = translateToOpenAI(anthropicPayload)
+    expect(isValidChatCompletionRequest(openAIPayload)).toBe(true)
+
+    const last = openAIPayload.messages.at(-1)
+    expect(last?.role).toBe("user")
+    expect(typeof last?.content).toBe("string")
+    expect((last?.content as string).length).toBeGreaterThan(0)
+  })
+
+  test("should not append a user turn when the assistant message carries tool calls", () => {
+    // An assistant turn with tool_calls is followed by tool results, not a user
+    // message, so it must be left untouched.
+    const anthropicPayload: AnthropicMessagesPayload = {
+      model: "claude-opus-4-8",
+      messages: [
+        { role: "user", content: "run ls" },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "call_1",
+              name: "Bash",
+              input: { command: "ls" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "call_1",
+              content: "file.txt",
+            },
+          ],
+        },
+      ],
+      max_tokens: 100,
+    }
+    const openAIPayload = translateToOpenAI(anthropicPayload)
+    expect(isValidChatCompletionRequest(openAIPayload)).toBe(true)
+
+    // Last message is the tool result, and no extra user turn was appended.
+    const last = openAIPayload.messages.at(-1)
+    expect(last?.role).toBe("tool")
+    expect(
+      openAIPayload.messages.filter((m) => m.role === "user"),
+    ).toHaveLength(1)
+  })
+
+  test("should not append a user turn when the conversation already ends with a user message", () => {
+    const anthropicPayload: AnthropicMessagesPayload = {
+      model: "claude-opus-4-8",
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "Hello there" },
+        { role: "user", content: "how are you?" },
+      ],
+      max_tokens: 100,
+    }
+    const openAIPayload = translateToOpenAI(anthropicPayload)
+    expect(isValidChatCompletionRequest(openAIPayload)).toBe(true)
+
+    const userMessages = openAIPayload.messages.filter((m) => m.role === "user")
+    expect(userMessages).toHaveLength(2)
+    expect(userMessages.at(-1)?.content).toBe("how are you?")
   })
 
   test("should handle thinking blocks with tool calls", () => {

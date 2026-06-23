@@ -66,7 +66,22 @@ function translateAnthropicMessagesToOpenAI(
     : handleAssistantMessage(message),
   )
 
-  return [...systemMessages, ...otherMessages]
+  const messages = [...systemMessages, ...otherMessages]
+
+  // Copilot's OpenAI endpoint rejects (400 "Bad Request") any conversation that
+  // ends on an assistant turn. Anthropic allows this as "assistant prefill", and
+  // Claude Code depends on it — e.g. the deferred-tools (ToolSearch) reminder
+  // arrives as a trailing assistant message, so nearly every request ends this
+  // way. OpenAI has no prefill equivalent, so append a minimal user turn to make
+  // the request well-formed. The shim must be non-empty: whitespace-only content
+  // is rejected too. Skipped when the assistant turn carries tool_calls, since
+  // those require following tool messages rather than a user message.
+  const last = messages.at(-1)
+  if (last?.role === "assistant" && !last.tool_calls) {
+    messages.push({ role: "user", content: "Continue." })
+  }
+
+  return messages
 }
 
 function handleSystemPrompt(
